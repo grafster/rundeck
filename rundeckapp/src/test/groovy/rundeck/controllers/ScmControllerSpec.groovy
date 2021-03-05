@@ -231,7 +231,7 @@ class ScmControllerSpec extends HibernateSpec implements ControllerUnitTest<ScmC
 
             1 * projectHasConfiguredPlugin(integration, projectName) >> true
             1 * getInputView(_, integration, projectName, actionName) >> Mock(BasicInputView)
-            1 * exportStatusForJobs(_,_) >> [
+            1 * exportStatusForJobsWithoutClusterFix(_,_) >> [
                 job1: new JobStateImpl(synchState: SynchState.EXPORT_NEEDED),
                 job2: new JobStateImpl(synchState: SynchState.EXPORT_NEEDED),
                 job3: new JobStateImpl(synchState: SynchState.EXPORT_NEEDED),
@@ -725,7 +725,7 @@ class ScmControllerSpec extends HibernateSpec implements ControllerUnitTest<ScmC
             1 * getAuthContextForSubjectAndProject(_, projectName) >> Mock(UserAndRolesAuthContext)
             1 * authorizeApplicationResourceAll(*_) >> true
         }
-        setupFormTokens(params)
+        setupFormTokens(session)
         when:
         request.method = 'POST'
         controller.deletePluginConfig(projectName, 'export')
@@ -746,7 +746,7 @@ class ScmControllerSpec extends HibernateSpec implements ControllerUnitTest<ScmC
             1 * getAuthContextForSubjectAndProject(_, projectName) >> Mock(UserAndRolesAuthContext)
             1 * authorizeApplicationResourceAll(*_) >> true
         }
-        setupFormTokens(params)
+        setupFormTokens(session)
         when:
         request.method = 'POST'
         controller.deletePluginConfig(projectName, 'export')
