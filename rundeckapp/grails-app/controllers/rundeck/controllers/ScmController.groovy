@@ -61,6 +61,7 @@ class ScmController extends ControllerBase {
             apiJobDiff             : ['GET'],
             apiJobActionInput      : ['GET'],
             apiJobActionPerform    : ['POST'],
+            deletePluginConfig     : ['POST'],
     ]
     /**
      * Require API v15 for all API endpoints
@@ -1702,4 +1703,44 @@ class ScmController extends ControllerBase {
                 integration         : integration
         ]
     }
+
+    def deletePluginConfig(String project, String integration){
+        AuthContext authContext = rundeckAuthContextProcessor.getAuthContextForSubjectAndProject(session.subject, project)
+        if (unauthorizedResponse(
+                rundeckAuthContextProcessor.authorizeApplicationResourceAll(
+                        authContext,
+                        rundeckAuthContextProcessor.authResourceForProject(project),
+                        [AuthConstants.ACTION_CONFIGURE, AuthConstants.ACTION_ADMIN]
+                ),
+                AuthConstants.ACTION_CONFIGURE, 'Project', project
+        )) {
+            return
+        }
+
+        if (params.cancel == 'Cancel') {
+            return redirect(controller: 'scm', action: 'index', params: [project: project])
+        }
+
+        boolean valid = false
+        withForm {
+            valid = true
+        }.invalidToken {
+            request.errorCode = 'request.error.invalidtoken.message'
+            renderErrorView([:])
+        }
+        if (!valid) {
+            return
+        }
+
+        def deleted = scmService.removePluginConfiguration(integration, project, null)
+
+        if (deleted) {
+            flash.message = message(code: "scmController.action.delete.success.message", args: [integration])
+        }else{
+            flash.error = message(code: "scmController.action.delete.error.message", args: [integration])
+        }
+
+        redirect(action: 'index', params: [project: project])
+    }
+
 }
