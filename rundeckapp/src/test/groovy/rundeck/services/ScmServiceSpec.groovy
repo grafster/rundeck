@@ -783,11 +783,11 @@ class ScmServiceSpec extends HibernateSpec implements ServiceUnitTest<ScmService
             getSetting("username")>>"admin"
             getSettingList("roles")>>["admin"]
             _ * getType() >> 'pluginType'
-            1 * getConfig() >> [plugin: 'config']
+            2 * getConfig() >> [plugin: 'config']
         }
-        1 * service.pluginService.validatePlugin(*_) >> validated
-        1 * service.pluginService.retainPlugin('pluginType', _) >> Closeables.closeableProvider(exportFactory, exportCloser)
-        1 * exportFactory.createPlugin(_, _) >> plugin
+        2 * service.pluginService.validatePlugin(*_) >> validated
+        2 * service.pluginService.retainPlugin('pluginType', _) >> Closeables.closeableProvider(exportFactory, exportCloser)
+        2 * exportFactory.createPlugin(_, _, _) >> plugin
         1 * service.jobEventsService.addListenerForProject(_, 'test')
 
         jobChangeCalls * plugin.jobChanged(_,_)
@@ -853,11 +853,11 @@ class ScmServiceSpec extends HibernateSpec implements ServiceUnitTest<ScmService
             getSetting("username")>>"admin"
             getSettingList("roles")>>["admin"]
             _ * getType() >> 'pluginType'
-            1 * getConfig() >> [plugin: 'config']
+            2 * getConfig() >> [plugin: 'config']
         }
-        1 * service.pluginService.validatePlugin(*_) >> validated
-        1 * service.pluginService.retainPlugin('pluginType', _) >> Closeables.closeableProvider(exportFactory, exportCloser)
-        1 * exportFactory.createPlugin(_, _) >> plugin
+        2 * service.pluginService.validatePlugin(*_) >> validated
+        2 * service.pluginService.retainPlugin('pluginType', _) >> Closeables.closeableProvider(exportFactory, exportCloser)
+        2 * exportFactory.createPlugin(_, _, _) >> plugin
         1 * service.jobEventsService.addListenerForProject(_, 'test')
 
         jobMetadataCalls * service.jobMetadataService.setJobPluginMeta(job, 'scm-import', _)
