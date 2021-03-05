@@ -53,6 +53,7 @@ import com.dtolabs.rundeck.plugins.scm.ScmUserInfo
 import com.dtolabs.rundeck.plugins.scm.ScmUserInfoMissing
 import com.dtolabs.rundeck.core.plugins.DescribedPlugin
 import com.dtolabs.rundeck.core.plugins.ValidatedPlugin
+import com.dtolabs.rundeck.plugins.scm.SynchState
 import com.dtolabs.rundeck.server.plugins.services.ScmExportPluginProviderService
 import com.dtolabs.rundeck.server.plugins.services.ScmImportPluginProviderService
 import org.rundeck.app.components.RundeckJobDefinitionManager
@@ -1153,7 +1154,6 @@ class ScmService {
      * @return
      */
     Map<String, JobState> exportStatusForJobs(UserAndRolesAuthContext auth, List<ScheduledExecution> jobs) {
-        def status = [:]
         def clusterMode = frameworkService.isClusterModeEnabled()
         if(jobs && jobs.size()>0 && clusterMode){
             def project = jobs.get(0).project
@@ -1161,7 +1161,18 @@ class ScmService {
                 fixExportStatus(auth, project, jobs)
             }
         }
+        def status = exportStatusForJobsWithoutClusterFix(auth, jobs)
 
+        status
+    }
+
+    /**
+     * Return a map of status for jobs (without cluster fix)
+     * @param jobs
+     * @return
+     */
+    Map<String, JobState> exportStatusForJobsWithoutClusterFix(UserAndRolesAuthContext auth, List<ScheduledExecution> jobs) {
+        def status = [:]
         exportjobRefsForJobs(jobs).each { jobReference ->
             def plugin = getLoadedExportPluginFor jobReference.project
             if (plugin) {
@@ -1170,6 +1181,7 @@ class ScmService {
                 log.debug("Status for job ${jobReference}: ${status[jobReference.id]}, origpath: ${originalPath}")
             }
         }
+
         status
     }
     /**
@@ -1274,7 +1286,7 @@ class ScmService {
                 jobs.each { job ->
                     def orig = jobMetadataService.getJobPluginMeta(job, 'scm-import') ?: [:]
 
-                    def newmeta = [version: job.version, pluginMeta: result.commit.asMap()]
+                    def newmeta = [version: job.version, pluginMeta: result.commit.asMap(), name: job.jobName, groupPath: job.groupPath]
 
                     jobMetadataService.setJobPluginMeta(
                             job,
@@ -1438,6 +1450,95 @@ class ScmService {
                 plugin?.clusterFixJobs(context, joblist, originalPaths)
             }
         }
+    }
+
+    // check if jobs has the SCM metadata stored in the DB
+    void checkStoredSCMStatus(String project, List<ScheduledExecution> jobs) {
+        def plugin = getLoadedExportPluginFor project
+
+        if (plugin) {
+            //synch import commit info to exported commit data
+            jobs.each { job ->
+                def jobReference = (JobScmReference)exportJobRef(job)
+
+                //need to save status in DB
+                if(jobReference.scmImportMetadata == null){
+                    def jobStatus = plugin.getJobStatus(jobReference)
+                    if(jobStatus.commit){
+                        def newmeta = [name: job.getJobName(),groupPath: job.getGroupPath(),version: job.version, pluginMeta: jobStatus.commit.asMap()]
+                        jobMetadataService.setJobPluginMeta(
+                                job,
+                                'scm-import',
+                                newmeta
+                        )
+                    }
+                }else{
+                    //check if the name is set
+                    def orig = jobMetadataService.getJobPluginMeta(job, 'scm-import') ?: [:]
+
+                    if(orig.name==null){
+                        def newmeta = [name: job.getJobName(), groupPath: job.getGroupPath()]
+                        jobMetadataService.setJobPluginMeta(
+                                job,
+                                'scm-import',
+                                orig + newmeta
+                        )
+                    }
+                }
+            }
+
+
+        }
+    }
+
+    def checkJobRenamed(String project, List<ScheduledExecution> jobs){
+        def plugin = getLoadedExportPluginFor project
+
+        if (plugin) {
+            //check if jobs has changed the name and are not registered
+            jobs.each { job ->
+
+                log.debug("check if job ${job.id} was renamed")
+
+                def orig = jobMetadataService.getJobPluginMeta(job, 'scm-import') ?: [:]
+                def jobReference = (JobScmReference)exportJobRef(job)
+
+                def jobFullName = job.generateFullName()
+                def origFullName = [orig.groupPath?:'',orig.name].join("/")
+
+                if( jobFullName != origFullName){
+
+                    log.debug("job ${job.groupPath}/${job.jobName} was renamed, previuos name: ${orig.groupPath}/${orig.name}" )
+
+                    boolean renameProcess = true
+                    if (renamedJobsCache && renamedJobsCache[project] && renamedJobsCache[project][jobReference.id] ){
+                        renameProcess = false
+                    }
+
+                    if(renameProcess){
+                        def origScmRef = (JobScmReference)exportJobRef(job)
+                        origScmRef.jobName = orig.name
+                        origScmRef.groupPath = orig.groupPath
+
+                        log.debug("reprocessing renamed job")
+
+                        //record original path for renamed job, if it is different
+                        def origpath = plugin.getRelativePathForJob(origScmRef)
+                        recordRenamedJob(project, origScmRef.id, origpath)
+
+                        plugin.jobChanged(
+                                new StoredJobChangeEvent(
+                                        eventType: JobChangeEvent.JobChangeEventType.MODIFY_RENAME,
+                                        originalJobReference: origScmRef,
+                                        jobReference: jobReference
+                                ),
+                                jobReference
+                        )
+                    }
+                }
+            }
+        }
+
     }
 
 }
