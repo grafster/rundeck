@@ -102,6 +102,7 @@ class ScmService {
             }
         }
     }
+
     boolean isScmInitDeferred(){
         if(grailsApplication.config.rundeck?.scm?.startup?.containsKey('initDeferred')) {
             return grailsApplication.config.rundeck?.scm?.startup?.initDeferred in [true, 'true']
@@ -119,6 +120,7 @@ class ScmService {
             //TODO: refresh status of all jobs in project?
         }
     }
+
     def initProject(String project, String integration){
         synchronized (initedProjects) {
             if (initedProjects.contains(integration + '/' + project)) {
@@ -144,7 +146,14 @@ class ScmService {
 
         try {
             def context = scmOperationContext(username, roles, project)
-            initPlugin(integration, context, pluginConfig.type, pluginConfig.config)
+            def plugin = initPlugin(integration, context, pluginConfig.type, pluginConfig.config, false)
+            try{
+                validateIntegrationDirectory(project, integration, context, plugin.getBaseDirectoryPropertyValue())
+                initPlugin(integration, context, pluginConfig.type, pluginConfig.config)
+            }catch(ScmPluginException validationException){
+                log.error("Unable to initialize SCM for project ${project} for integration ${integration}", validationException)
+                return false
+            }
             return true
         } catch (Throwable e) {
             log.error(
@@ -424,9 +433,10 @@ class ScmService {
      * Create new plugin config and load it
      * @param context context
      * @param config
+     * @param modifiedListeners used when running validation, so it doesn't add the plugin to the listeners
      * @return
      */
-    def initPlugin(String integration, ScmOperationContext context, String type, Map config) {
+    def initPlugin(String integration, ScmOperationContext context, String type, Map config, modifiedListeners = true) {
         def validation = validatePluginSetup(integration, context.frameworkProject, type, config)
         if (!validation) {
             throw new ScmPluginException("Plugin could not be loaded: " + type)
@@ -437,17 +447,19 @@ class ScmService {
                     validation?.report
             )
         }
-        def loaded = loadPluginWithConfig(integration, context, type, config)
+        def loaded = loadPluginWithConfig(integration, context, type, config, modifiedListeners)
 
         JobChangeListener changeListener
-        if (integration == EXPORT) {
-            ScmExportPlugin plugin = loaded.provider
-            changeListener = listenerForExportPlugin(plugin, context)
-        } else {
-            ScmImportPlugin plugin = loaded.provider
-            changeListener = listenerForImportPlugin(plugin)
+        if(modifiedListeners){
+            if (integration == EXPORT) {
+                ScmExportPlugin plugin = loaded.provider
+                changeListener = listenerForExportPlugin(plugin, context)
+            } else {
+                ScmImportPlugin plugin = loaded.provider
+                changeListener = listenerForImportPlugin(plugin)
+            }
+            registerPlugin(integration, loaded, changeListener, context.frameworkProject)
         }
-        registerPlugin(integration, loaded, changeListener, context.frameworkProject)
         loaded.provider
     }
 
@@ -543,6 +555,7 @@ class ScmService {
         try {
             def context = scmOperationContext(auth, project)
             def plugin = initPlugin(integration, context, type, config)
+            validateIntegrationDirectory(project, integration, context, plugin.getBaseDirectoryPropertyValue())
             if (integration == IMPORT) {
                 def nextAction = plugin.getSetupAction(context)
                 if (nextAction) {
@@ -554,6 +567,37 @@ class ScmService {
             return [valid: false, report: e.report]
         } catch (ScmPluginException e) {
             return [error: true, message: e.message]
+        }
+    }
+
+    /**
+     * It checks that the git base directory is not on any other git configuration
+     * @param project
+     * @param integration
+     * @param context
+     * @param currentDirectory
+     * @throws ScmPluginException
+     */
+    void validateIntegrationDirectory(project, integration,context, currentDirectory) throws ScmPluginException {
+        if(currentDirectory != null){
+            for(String projectName : frameworkService.getRundeckFramework().getFrameworkProjectMgr().listFrameworkProjectNames()){
+                for(String allowedIntegration : INTEGRATIONS){
+                    if((project.equals(projectName) && !allowedIntegration.equals(integration)) || !project.equals(projectName)){
+                        ScmPluginConfigData scmPluginConfig = loadScmConfig(projectName, allowedIntegration)
+                        if(scmPluginConfig && scmPluginConfig.type){
+                            def scmPluginIntegration = initPlugin(allowedIntegration, context, scmPluginConfig.type, scmPluginConfig.getConfig(), false)
+                            if(currentDirectory.equals(scmPluginIntegration.getBaseDirectoryPropertyValue())){
+                                if(integration.equals(EXPORT)){
+                                    loadedExportPlugins.remove(project)
+                                }else{
+                                    loadedImportPlugins.remove(project)
+                                }
+                                throw new ScmPluginException("SCM Directory already in use ${currentDirectory}")
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -760,6 +804,7 @@ class ScmService {
             def context = scmOperationContext(auth, project)
             def plugin = initPlugin(integration, context, type, scmPluginConfig.config)
             scmPluginConfig.enabled = true
+            validateIntegrationDirectory(project, integration, context, plugin.getBaseDirectoryPropertyValue())
             storeConfig(scmPluginConfig, project, integration)
             if (integration == IMPORT) {
                 def nextAction = plugin.getSetupAction(context)
@@ -775,12 +820,12 @@ class ScmService {
         }
     }
 
-    def loadPluginWithConfig(String integration, ScmOperationContext context, String type, Map config) {
+    def loadPluginWithConfig(String integration, ScmOperationContext context, String type, Map config, def initialize = true) {
         switch (integration) {
             case EXPORT:
-                return loadExportPluginWithConfig(context, type, config)
+                return loadExportPluginWithConfig(context, type, config, initialize)
             case IMPORT:
-                return loadImportPluginWithConfig(context, type, config)
+                return loadImportPluginWithConfig(context, type, config, initialize)
         }
 
     }
@@ -788,21 +833,23 @@ class ScmService {
     CloseableProvider<ScmExportPlugin> loadExportPluginWithConfig(
             ScmOperationContext context,
             String type,
-            Map config
+            Map config,
+            def initialize = true
     )
     {
         CloseableProvider<ScmExportPluginFactory> providerReference = pluginService.retainPlugin(
                 type,
                 scmExportPluginProviderService
         )
-        def plugin = providerReference.provider.createPlugin(context, config)
+        def plugin = providerReference.provider.createPlugin(context, config, initialize)
         return Closeables.closeableProvider(plugin, providerReference)
     }
 
     CloseableProvider<ScmImportPlugin> loadImportPluginWithConfig(
             ScmOperationContext context,
             String type,
-            Map config
+            Map config,
+            def initialize = true
     )
     {
         CloseableProvider<ScmImportPluginFactory> providerReference = pluginService.retainPlugin(
@@ -812,7 +859,7 @@ class ScmService {
 
         def list = loadInputTrackingItems(context.frameworkProject)
 
-        def plugin = providerReference.provider.createPlugin(context, config, list)
+        def plugin = providerReference.provider.createPlugin(context, config, list, initialize)
         return Closeables.closeableProvider(plugin, providerReference)
     }
 
