@@ -9,7 +9,7 @@ export class UtilityBar {
     @observable overflow: Array<UtilityItem> = []
 
     constructor(readonly root: RootStore, readonly client: RundeckClient) {
-        if (window._rundeck?.navbar) {
+        if (window._rundeck.navbar) {
             window._rundeck.navbar.items.forEach(i => {
                 this.items.push({...i, visible: true, container: i.container || 'root'})
             })
@@ -62,6 +62,7 @@ export interface UtilityItem {
     container?: string
     group?: string
     visible: boolean
+    count?: number
 }
 
 export interface UtilityActionItem extends UtilityItem {

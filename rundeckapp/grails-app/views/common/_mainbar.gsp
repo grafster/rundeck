@@ -67,14 +67,10 @@
                       </g:link>
                       <div id="projectPicker" data-project-label="${projectLabel}"/>
                   </li>
-                <g:ifPageProperty name='meta.projtabtitle'>
-                  <li class="primarylink">
-                    <a href="#">
-                      <g:pageProperty name="meta.projtabtitle"/>
-                    </a>
-                  </li>
-                </g:ifPageProperty>
-              </g:if>
+            </g:if>
+            <g:else>
+              <div id="projectPicker" data-project-label=""/>
+            </g:else>
             <g:if test="${request.getAttribute(RequestConstants.PAGE)}">
               <g:ifPageProperty name='meta.tabpage'>
                 <g:ifPageProperty name='meta.tabpage' equals='projectconfigure'>

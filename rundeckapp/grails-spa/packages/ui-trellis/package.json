@@ -10,7 +10,7 @@
     "dev": "concurrently -n vue,tsc \"vue-cli-service build --mode development --watch\" \"tsc -W -p ./tsconfig.build.json\"",
     "build": "run-script-os",
     "build:darwin:linux": "./node_modules/.bin/vue-cli-service build --mode production && tsc -p ./tsconfig.build.json",
-    "build:win32": "vue-cli-service.js build --mode production && tsc -p ./tsconfig.build.json",
+    "build:win32": "vue-cli-service.cmd build --mode production && tsc -p ./tsconfig.build.json",
     "storybook": "start-storybook -s public,theme,tests/data",
     "storybook:next": "STORYBOOK_THEME=theme-next start-storybook -s public,theme-next,tests/data"
   },
@@ -30,6 +30,8 @@
     "@storybook/preset-typescript": "^3.0.0",
     "@storybook/vue": "^5.3.18",
     "babel-preset-vue": "^2.0.2",
+    "vue-i18n": "^8.22.4",
+    "vue-multiselect": "^2.1.6",
     "perfect-scrollbar": "^1.5.0",
     "vue-virtual-scroller": "^1.0.10"
   },
